@@ -41,6 +41,12 @@ class UniversityDatabase:
                     is_university BOOLEAN DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS collected_categories (
+                    category TEXT PRIMARY KEY,
+                    page_count INTEGER,
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
                 
                 CREATE TABLE IF NOT EXISTS processing_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,16 +61,54 @@ class UniversityDatabase:
                 CREATE INDEX IF NOT EXISTS idx_universities_founded ON universities(founded_year);
                 CREATE INDEX IF NOT EXISTS idx_raw_pages_processed ON raw_pages(processed);
             """)
+            self._migrate(conn)
         logger.info(f"Database initialized at {self.db_path}")
+
+    def _migrate(self, conn):
+        """Add columns introduced after the original schema, in place.
+
+        Existing databases keep their data; each column is added only if absent.
+        """
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(raw_pages)")}
+        additions = {
+            # How many times a Gemini call for this page has failed. Bounds the
+            # filter loop: a page the model never returns a result for is parked
+            # after MAX_PAGE_ATTEMPTS instead of being retried forever.
+            "attempts": "INTEGER DEFAULT 0",
+            # Classification confidence, so the extract stage can apply the same
+            # threshold the filter stage used instead of a bare boolean.
+            "confidence": "REAL",
+            # Extraction checkpoint, separate from the classification checkpoint.
+            # Without this, resuming re-extracts every university already done.
+            "extracted": "INTEGER DEFAULT 0",
+        }
+        for col, decl in additions.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE raw_pages ADD COLUMN {col} {decl}")
+                logger.info("Migrated raw_pages: added column %s", col)
+        conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_raw_pages_extract_queue
+                ON raw_pages(is_university, extracted);
+            CREATE INDEX IF NOT EXISTS idx_raw_pages_attempts
+                ON raw_pages(processed, attempts);
+        """)
     
     def insert_raw_page(self, page_data: Dict) -> bool:
         """Insert raw Wikipedia page data"""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                # ON CONFLICT ... DO UPDATE rather than INSERT OR REPLACE: the
+                # latter deletes the row, discarding processed/is_university/
+                # extracted, so re-running collection would silently reset every
+                # checkpoint and re-pay for all the Gemini work already done.
                 conn.execute("""
-                    INSERT OR REPLACE INTO raw_pages 
-                    (page_id, title, url, extract, categories)
+                    INSERT INTO raw_pages (page_id, title, url, extract, categories)
                     VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(page_id) DO UPDATE SET
+                        title=excluded.title,
+                        url=excluded.url,
+                        extract=excluded.extract,
+                        categories=excluded.categories
                 """, (
                     page_data['page_id'],
                     page_data['title'],
@@ -102,25 +146,83 @@ class UniversityDatabase:
             logger.error(f"Error inserting university: {e}")
             return False
     
-    def get_unprocessed_pages(self, limit: int = 100) -> List[Dict]:
-        """Get unprocessed Wikipedia pages"""
+    def get_unprocessed_pages(self, limit: int = 100, max_attempts: int = 3) -> List[Dict]:
+        """Get pages still awaiting classification.
+
+        Pages that have already failed max_attempts times are excluded, which is
+        what stops the filter loop from spinning forever on a page the model
+        refuses to return a result for.
+        """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT * FROM raw_pages 
-                WHERE processed = 0 
+                SELECT * FROM raw_pages
+                WHERE processed = 0 AND COALESCE(attempts, 0) < ?
+                ORDER BY page_id
                 LIMIT ?
-            """, (limit,))
+            """, (max_attempts, limit))
             return [dict(row) for row in cursor.fetchall()]
-    
-    def mark_page_processed(self, page_id: int, is_university: bool):
-        """Mark a page as processed"""
+
+    def mark_page_processed(self, page_id: int, is_university: bool,
+                            confidence: float = None):
+        """Mark a page as classified."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
-                UPDATE raw_pages 
-                SET processed = 1, is_university = ? 
+                UPDATE raw_pages
+                SET processed = 1, is_university = ?, confidence = ?
                 WHERE page_id = ?
-            """, (is_university, page_id))
+            """, (1 if is_university else 0, confidence, page_id))
+
+    def record_failed_attempt(self, page_id: int):
+        """Count a failed Gemini attempt without marking the page classified.
+
+        The distinction matters: the old code marked failures as processed with
+        is_university=0, permanently mislabelling every page caught by a rate
+        limit as 'not a university'.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE raw_pages SET attempts = COALESCE(attempts, 0) + 1
+                WHERE page_id = ?
+            """, (page_id,))
+
+    def get_pages_for_extraction(self, limit: int = None,
+                                 min_confidence: float = 0.0) -> List[Dict]:
+        """Universities that still need their details extracted."""
+        sql = """
+            SELECT page_id, title, url, extract, categories, confidence
+            FROM raw_pages
+            WHERE is_university = 1
+              AND COALESCE(extracted, 0) = 0
+              AND COALESCE(confidence, 1.0) >= ?
+            ORDER BY page_id
+        """
+        params = [min_confidence]
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def mark_page_extracted(self, page_id: int):
+        """Checkpoint a completed extraction so resume never re-pays for it."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE raw_pages SET extracted = 1 WHERE page_id = ?", (page_id,))
+
+    def mark_category_collected(self, category: str, page_count: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO collected_categories (category, page_count)
+                VALUES (?, ?)
+                ON CONFLICT(category) DO UPDATE SET
+                    page_count=excluded.page_count,
+                    completed_at=CURRENT_TIMESTAMP
+            """, (category, page_count))
+
+    def get_collected_categories(self) -> set:
+        with sqlite3.connect(self.db_path) as conn:
+            return {r[0] for r in conn.execute("SELECT category FROM collected_categories")}
     
     def get_statistics(self) -> Dict:
         """Get processing statistics"""
@@ -138,6 +240,21 @@ class UniversityDatabase:
             # Universities count
             cursor = conn.execute("SELECT COUNT(*) FROM universities")
             stats['universities'] = cursor.fetchone()[0]
+
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM raw_pages WHERE processed = 0 AND COALESCE(attempts,0) < 3")
+            stats['pending_classification'] = cursor.fetchone()[0]
+
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM raw_pages WHERE processed = 0 AND COALESCE(attempts,0) >= 3")
+            stats['abandoned_pages'] = cursor.fetchone()[0]
+
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM raw_pages WHERE is_university = 1 AND COALESCE(extracted,0) = 0")
+            stats['pending_extraction'] = cursor.fetchone()[0]
+
+            cursor = conn.execute("SELECT COUNT(*) FROM raw_pages WHERE is_university = 1")
+            stats['classified_universities'] = cursor.fetchone()[0]
             
             # Universities by country
             cursor = conn.execute("""
