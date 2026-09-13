@@ -1,0 +1,71 @@
+{
+  "run_label": "collect_bench",
+  "started_utc": "2026-09-13T22:07:38.929288+00:00",
+  "ended_utc": "2026-09-13T22:07:43.605819+00:00",
+  "config": {
+    "model": "gemini-3.6-flash",
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 250,
+    "classify_batch_size": 10,
+    "combined_batch_size": 5,
+    "combined_filter_extract": false,
+    "max_concurrency": 5,
+    "categories": null
+  },
+  "stages": [
+    {
+      "stage": "collect",
+      "wall_seconds": 4.627,
+      "items": 90,
+      "items_per_min": 1167.14,
+      "gemini_requests": 0,
+      "gemini_requests_per_min": 0.0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "thinking_tokens": 0,
+      "total_tokens": 0,
+      "retries": 0,
+      "rate_limit_429s": 0,
+      "local_throttles": 0,
+      "failures": 0,
+      "rate_limit_wait_seconds": 0.0,
+      "api_call_seconds": 0.0,
+      "other_seconds": 4.627,
+      "wait_threadsec_per_100s_wall": 0.0
+    }
+  ],
+  "totals": {
+    "run_wall_seconds": 4.676,
+    "gemini_requests": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "thinking_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "pricing_configured": false,
+    "retries": 0,
+    "rate_limit_429s": 0,
+    "local_throttles": 0,
+    "failures": 0,
+    "rate_limit_wait_seconds": 0.0,
+    "api_call_seconds": 0.0,
+    "other_seconds": 4.676,
+    "wait_threadsec_per_100s_wall": 0.0
+  },
+  "notes": [],
+  "pages_collected": 90,
+  "rate_limiter": {
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 250,
+    "requests_last_minute": 0,
+    "tokens_last_minute": 0,
+    "requests_last_day": 0,
+    "daily_remaining": 250,
+    "total_wait_seconds": 0.0,
+    "rpm_blocks": 0,
+    "tpm_blocks": 0,
+    "server_reported_quotas": {}
+  }
+}

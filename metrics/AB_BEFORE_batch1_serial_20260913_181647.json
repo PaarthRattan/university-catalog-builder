@@ -1,0 +1,71 @@
+{
+  "run_label": "AB_BEFORE_batch1_serial",
+  "started_utc": "2026-09-13T22:13:46.900489+00:00",
+  "ended_utc": "2026-09-13T22:16:47.637885+00:00",
+  "config": {
+    "model": "gemini-3.5-flash-lite",
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 20,
+    "classify_batch_size": 1,
+    "combined_batch_size": 5,
+    "combined_filter_extract": false,
+    "max_concurrency": 1,
+    "categories": null
+  },
+  "stages": [
+    {
+      "stage": "filter",
+      "wall_seconds": 180.698,
+      "items": 16,
+      "items_per_min": 5.31,
+      "gemini_requests": 16,
+      "gemini_requests_per_min": 5.31,
+      "input_tokens": 4531,
+      "output_tokens": 669,
+      "thinking_tokens": 0,
+      "total_tokens": 5200,
+      "retries": 0,
+      "rate_limit_429s": 0,
+      "local_throttles": 7,
+      "failures": 0,
+      "rate_limit_wait_seconds": 170.487,
+      "api_call_seconds": 9.951,
+      "other_seconds": 0.26,
+      "wait_threadsec_per_100s_wall": 94.3
+    }
+  ],
+  "totals": {
+    "run_wall_seconds": 180.737,
+    "gemini_requests": 16,
+    "input_tokens": 4531,
+    "output_tokens": 669,
+    "thinking_tokens": 0,
+    "total_tokens": 5200,
+    "estimated_cost_usd": 0.0,
+    "pricing_configured": false,
+    "retries": 0,
+    "rate_limit_429s": 0,
+    "local_throttles": 7,
+    "failures": 0,
+    "rate_limit_wait_seconds": 170.487,
+    "api_call_seconds": 9.951,
+    "other_seconds": 0.299,
+    "wait_threadsec_per_100s_wall": 94.3
+  },
+  "notes": [],
+  "universities_found": 15,
+  "rate_limiter": {
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 20,
+    "requests_last_minute": 5,
+    "tokens_last_minute": 1549,
+    "requests_last_day": 16,
+    "daily_remaining": 4,
+    "total_wait_seconds": 170.487,
+    "rpm_blocks": 40,
+    "tpm_blocks": 0,
+    "server_reported_quotas": {}
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "run_label": "CMP_COMBINED",
+  "started_utc": "2026-09-13T22:22:49.203522+00:00",
+  "ended_utc": "2026-09-13T22:22:51.438429+00:00",
+  "config": {
+    "model": "gemini-3.1-flash-lite",
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 20,
+    "classify_batch_size": 10,
+    "combined_batch_size": 5,
+    "combined_filter_extract": true,
+    "max_concurrency": 5,
+    "categories": null
+  },
+  "stages": [
+    {
+      "stage": "filter_extract_combined",
+      "wall_seconds": 2.192,
+      "items": 10,
+      "items_per_min": 273.77,
+      "gemini_requests": 2,
+      "gemini_requests_per_min": 54.75,
+      "input_tokens": 2602,
+      "output_tokens": 1218,
+      "thinking_tokens": 0,
+      "total_tokens": 3820,
+      "retries": 0,
+      "rate_limit_429s": 0,
+      "local_throttles": 0,
+      "failures": 0,
+      "rate_limit_wait_seconds": 0.0,
+      "api_call_seconds": 4.035,
+      "other_seconds": 0.0,
+      "wait_threadsec_per_100s_wall": 0.0
+    }
+  ],
+  "totals": {
+    "run_wall_seconds": 2.235,
+    "gemini_requests": 2,
+    "input_tokens": 2602,
+    "output_tokens": 1218,
+    "thinking_tokens": 0,
+    "total_tokens": 3820,
+    "estimated_cost_usd": 0.0,
+    "pricing_configured": false,
+    "retries": 0,
+    "rate_limit_429s": 0,
+    "local_throttles": 0,
+    "failures": 0,
+    "rate_limit_wait_seconds": 0.0,
+    "api_call_seconds": 4.035,
+    "other_seconds": 0.0,
+    "wait_threadsec_per_100s_wall": 0.0
+  },
+  "notes": [],
+  "results": {
+    "universities_filtered": 9,
+    "universities_extracted": 9,
+    "pages_processed": 10
+  },
+  "rate_limiter": {
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 20,
+    "requests_last_minute": 2,
+    "tokens_last_minute": 3820,
+    "requests_last_day": 2,
+    "daily_remaining": 18,
+    "total_wait_seconds": 0.0,
+    "rpm_blocks": 0,
+    "tpm_blocks": 0,
+    "server_reported_quotas": {}
+  }
+}

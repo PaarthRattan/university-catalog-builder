@@ -1,0 +1,76 @@
+{
+  "run_label": "BEFORE_unbatched_serial",
+  "started_utc": "2026-09-13T22:09:53.765987+00:00",
+  "ended_utc": "2026-09-13T22:09:54.001247+00:00",
+  "config": {
+    "model": "gemini-3.6-flash",
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 250,
+    "classify_batch_size": 1,
+    "combined_batch_size": 5,
+    "combined_filter_extract": false,
+    "max_concurrency": 1,
+    "categories": null
+  },
+  "stages": [
+    {
+      "stage": "filter",
+      "wall_seconds": 0.189,
+      "items": 1,
+      "items_per_min": 317.09,
+      "gemini_requests": 0,
+      "gemini_requests_per_min": 0.0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "thinking_tokens": 0,
+      "total_tokens": 0,
+      "retries": 0,
+      "rate_limit_429s": 0,
+      "local_throttles": 0,
+      "failures": 0,
+      "rate_limit_wait_seconds": 0.0,
+      "api_call_seconds": 0.0,
+      "other_seconds": 0.189,
+      "wait_threadsec_per_100s_wall": 0.0
+    }
+  ],
+  "totals": {
+    "run_wall_seconds": 0.235,
+    "gemini_requests": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "thinking_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "pricing_configured": false,
+    "retries": 0,
+    "rate_limit_429s": 0,
+    "local_throttles": 0,
+    "failures": 0,
+    "rate_limit_wait_seconds": 0.0,
+    "api_call_seconds": 0.0,
+    "other_seconds": 0.235,
+    "wait_threadsec_per_100s_wall": 0.0
+  },
+  "notes": [
+    "Daily Gemini quota exhausted during university_filtering. Daily Gemini quota exhausted: 3/250 requests used. Oldest request ages out in 0.0h.. Server reported: [('GenerateRequestsPerDayPerProjectPerModel-FreeTier', '20')]. Message: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash\\nPlease retry in 5.930250924s.', 'status': 'RESOURCE_EXHAUSTED' All completed work is checkpointed; resume with `python main.py resume` after the quota window rolls."
+  ],
+  "halted": true,
+  "reason": "Daily Gemini quota exhausted during university_filtering. Daily Gemini quota exhausted: 3/250 requests used. Oldest request ages out in 0.0h.. Server reported: [('GenerateRequestsPerDayPerProjectPerModel-FreeTier', '20')]. Message: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash\\nPlease retry in 5.930250924s.', 'status': 'RESOURCE_EXHAUSTED' All completed work is checkpointed; resume with `python main.py resume` after the quota window rolls.",
+  "rate_limiter": {
+    "rpm_limit": 5,
+    "tpm_limit": 250000,
+    "rpd_limit": 250,
+    "requests_last_minute": 0,
+    "tokens_last_minute": 0,
+    "requests_last_day": 3,
+    "daily_remaining": 247,
+    "total_wait_seconds": 0.0,
+    "rpm_blocks": 0,
+    "tpm_blocks": 0,
+    "server_reported_quotas": {
+      "GenerateRequestsPerDayPerProjectPerModel-FreeTier": "20"
+    }
+  }
+}
