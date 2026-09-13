@@ -11,7 +11,7 @@ from .gemini_client import GeminiClient, GeminiCallError
 from .rate_limiter import DailyQuotaExhausted
 from .database import UniversityDatabase
 from config import (
-    UNIVERSITY_CATEGORIES, DATABASE_PATH, GEMINI_CLASSIFY_BATCH_SIZE,
+    UNIVERSITY_CATEGORIES, DATABASE_PATH, GEMINI_MODEL, GEMINI_CLASSIFY_BATCH_SIZE,
     GEMINI_COMBINED_BATCH_SIZE, GEMINI_COMBINED_FILTER_EXTRACT,
     UNIVERSITY_CONFIDENCE_THRESHOLD, MAX_PAGE_ATTEMPTS,
 )
@@ -37,9 +37,18 @@ class UniversityExtractionPipeline:
                  combined: bool = None):
         self.db = UniversityDatabase(db_path)
         self.metrics = metrics
-        # RPD state lives next to the database so the daily budget survives
-        # process restarts -- see rate_limiter.GeminiRateLimiter.
-        state_path = f"{db_path}.ratelimit.json"
+        # RPD state is keyed by MODEL, not by database, and lives alongside the
+        # data directory so it survives process restarts.
+        #
+        # The quota's own scope is what matters here: the server reports it as
+        # GenerateRequestsPerDayPerProjectPerModel, i.e. per API project per
+        # model. Keying the state file by database path instead would split the
+        # counter across databases that actually share one server-side budget,
+        # so two pipelines on one key would each believe they had a full day's
+        # quota and both walk into 429s.
+        import os as _os
+        state_dir = _os.path.dirname(db_path) or "."
+        state_path = _os.path.join(state_dir, f".ratelimit_{GEMINI_MODEL}.json")
         self.wikipedia = WikipediaClient()
         self.gemini = GeminiClient(metrics=metrics, state_path=state_path)
         self.combined = (GEMINI_COMBINED_FILTER_EXTRACT if combined is None else combined)
