@@ -4,6 +4,5 @@ aiohttp==3.9.1
 pandas==2.1.4
 python-dotenv==1.0.0
 tqdm==4.66.1
-beautifulsoup4==4.12.2
 fuzzywuzzy==0.18.0
 python-levenshtein==0.21.1

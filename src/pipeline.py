@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sqlite3
 import time
@@ -11,7 +12,8 @@ from .gemini_client import GeminiClient, GeminiCallError
 from .rate_limiter import DailyQuotaExhausted
 from .database import UniversityDatabase
 from config import (
-    UNIVERSITY_CATEGORIES, DATABASE_PATH, GEMINI_MODEL, GEMINI_CLASSIFY_BATCH_SIZE,
+    UNIVERSITY_CATEGORIES, DATABASE_PATH, GEMINI_MODEL, WIKIPEDIA_USE_ASYNC,
+    GEMINI_CLASSIFY_BATCH_SIZE,
     GEMINI_COMBINED_BATCH_SIZE, GEMINI_COMBINED_FILTER_EXTRACT,
     UNIVERSITY_CONFIDENCE_THRESHOLD, MAX_PAGE_ATTEMPTS,
 )
@@ -119,8 +121,14 @@ class UniversityExtractionPipeline:
                             for pid, t, u in all_pages]
             logger.info("Found %d unique pages, getting extracts...", len(unique_pages))
 
-            extracts = self.wikipedia.get_page_extracts(
-                [p['page_id'] for p in unique_pages])
+            page_ids = [p['page_id'] for p in unique_pages]
+            # Extract fetching is the bulk of collection: one request per 20
+            # pages, each independent. Run them concurrently.
+            if WIKIPEDIA_USE_ASYNC:
+                extracts = asyncio.run(
+                    self.wikipedia.async_get_page_extracts(page_ids))
+            else:
+                extracts = self.wikipedia.get_page_extracts(page_ids)
 
             total_pages = 0
             for page in tqdm(unique_pages, desc="Storing raw pages"):

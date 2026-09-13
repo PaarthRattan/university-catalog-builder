@@ -39,6 +39,9 @@ DATABASE_PATH = os.getenv('DATABASE_PATH', 'data/universities.db')
 # Rate Limiting -- Wikipedia
 WIKIPEDIA_REQUESTS_PER_SECOND = _env_int('WIKIPEDIA_REQUESTS_PER_SECOND', 10)
 WIKIPEDIA_MAX_CONCURRENCY = _env_int('WIKIPEDIA_MAX_CONCURRENCY', 8)
+# Use the concurrent aiohttp collection path. Set 0 to fall back to the serial
+# requests path (both produce identical output; see _parse_extract_payload).
+WIKIPEDIA_USE_ASYNC = _env_bool('WIKIPEDIA_USE_ASYNC', True)
 
 # Rate Limiting -- Gemini
 #

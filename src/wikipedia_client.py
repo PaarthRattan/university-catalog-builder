@@ -4,11 +4,43 @@ import aiohttp
 import time
 from typing import List, Dict, Optional
 import logging
+import random
 from config import (WIKIPEDIA_API_URL, WIKIPEDIA_USER_AGENT, WIKIPEDIA_REQUESTS_PER_SECOND,
                     WIKIPEDIA_MAX_CONCURRENCY, BATCH_SIZE, EXTRACT_BATCH_SIZE,
                     MAX_RETRIES, RETRY_DELAY)
 
 logger = logging.getLogger(__name__)
+
+
+class AsyncRateLimiter:
+    """Global request spacing across concurrent coroutines.
+
+    The obvious approach -- `await asyncio.sleep(delay)` at the top of each task
+    -- does not rate limit anything. It delays each task by a fixed amount
+    individually, so N concurrent tasks still issue N requests per `delay`
+    window: with 8 workers and a 0.1s delay that is ~80 req/s against a
+    configured ceiling of 10.
+
+    This reserves a slot on a shared timeline instead, so the aggregate rate
+    holds no matter how many coroutines are running. The reservation is made
+    under the lock and the sleep happens outside it, so waiting tasks do not
+    serialise behind each other.
+    """
+
+    def __init__(self, rate_per_second: float):
+        self._min_interval = 1.0 / max(rate_per_second, 0.001)
+        self._next_slot = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> float:
+        async with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._next_slot)
+            self._next_slot = slot + self._min_interval
+            wait = slot - now
+        if wait > 0:
+            await asyncio.sleep(wait)
+        return wait
 
 class WikipediaClient:
     def __init__(self):
@@ -99,36 +131,17 @@ class WikipediaClient:
         # content for at most `exlimit` (max 20) pages per request.
         for i in range(0, len(page_ids), EXTRACT_BATCH_SIZE):
             batch_ids = page_ids[i:i + EXTRACT_BATCH_SIZE]
+            base = self._extract_params(batch_ids)
+            cont = {}
+            for _ in range(20):
+                data = self._make_request({**base, **cont})
+                if not data or 'query' not in data:
+                    break
+                self._merge_extract_payload(page_data, data)
+                if 'continue' not in data:
+                    break
+                cont = data['continue']
 
-            params = {
-                'action': 'query',
-                'pageids': '|'.join(map(str, batch_ids)),
-                'prop': 'extracts|info|categories',
-                'exintro': True,
-                'explaintext': True,
-                'exlimit': EXTRACT_BATCH_SIZE,
-                'inprop': 'url',
-                'format': 'json'
-            }
-            
-            data = self._make_request(params)
-            if not data or 'query' not in data:
-                continue
-            
-            pages = data['query'].get('pages', {})
-            for page_id, page_info in pages.items():
-                if 'extract' in page_info:
-                    categories = []
-                    if 'categories' in page_info:
-                        categories = [cat['title'] for cat in page_info['categories']]
-                    
-                    page_data[int(page_id)] = {
-                        'title': page_info.get('title', ''),
-                        'extract': page_info.get('extract', ''),
-                        'url': page_info.get('fullurl', ''),
-                        'categories': categories
-                    }
-        
         logger.info(f"Retrieved extracts for {len(page_data)} pages")
         return page_data
     
@@ -181,70 +194,128 @@ class WikipediaClient:
         return subcategories
     
     async def async_get_page_extracts(self, page_ids: List[int]) -> Dict[int, Dict]:
-        """Async version of get_page_extracts for better performance"""
-        page_data = {}
+        """Fetch extracts for many pages concurrently.
 
-        # Bound in-flight requests with a semaphore. A bare asyncio.gather over
-        # every batch opens one connection per batch simultaneously, which for a
-        # large page set means thousands of concurrent requests at Wikipedia --
-        # both impolite and a reliable way to get throttled or blocked.
+        Bounded by a semaphore (connection count) AND a shared rate limiter
+        (requests per second). Both are needed: the semaphore caps how many
+        sockets are open at once, the limiter caps how fast requests leave.
+        """
+        if not page_ids:
+            return {}
+
+        page_data: Dict[int, Dict] = {}
         semaphore = asyncio.Semaphore(max(1, WIKIPEDIA_MAX_CONCURRENCY))
+        limiter = AsyncRateLimiter(WIKIPEDIA_REQUESTS_PER_SECOND)
 
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(headers=self.headers, timeout=timeout) as session:
             async def bounded(batch_ids):
                 async with semaphore:
-                    return await self._async_get_batch(session, batch_ids)
+                    return await self._async_get_batch(session, batch_ids, limiter)
 
             tasks = [bounded(page_ids[i:i + EXTRACT_BATCH_SIZE])
                      for i in range(0, len(page_ids), EXTRACT_BATCH_SIZE)]
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Combine results
-            for result in results:
+            failures = 0
+            for result in await asyncio.gather(*tasks, return_exceptions=True):
                 if isinstance(result, dict):
                     page_data.update(result)
-                elif isinstance(result, Exception):
-                    logger.error(f"Async request failed: {result}")
-        
+                else:
+                    failures += 1
+                    logger.error("Async batch failed: %s", result)
+
+        if failures:
+            logger.warning("%d of %d async batches failed", failures, len(tasks))
+        logger.info("Retrieved extracts for %d pages (async)", len(page_data))
         return page_data
-    
-    async def _async_get_batch(self, session: aiohttp.ClientSession, page_ids: List[int]) -> Dict[int, Dict]:
-        """Async helper to get a batch of page extracts"""
-        params = {
+
+    async def _async_get_batch(self, session: aiohttp.ClientSession,
+                               page_ids: List[int],
+                               limiter: "AsyncRateLimiter") -> Dict[int, Dict]:
+        """Fetch one batch, retrying transient failures with backoff."""
+        base = self._extract_params(page_ids)
+        page_data: Dict[int, Dict] = {}
+        cont: Dict = {}
+
+        # Follow `continue` until the API stops offering one, so paginated
+        # categories are collected in full. Bounded to keep a pathological
+        # response from looping forever.
+        for _ in range(20):
+            params = {**base, **cont}
+            data = await self._async_request(session, params, limiter)
+            if data is None:
+                break
+            self._merge_extract_payload(page_data, data)
+            if 'continue' not in data:
+                break
+            cont = data['continue']
+        return page_data
+
+    async def _async_request(self, session, params: Dict,
+                             limiter: "AsyncRateLimiter") -> Optional[Dict]:
+        """One rate-limited request with retry and exponential backoff."""
+        for attempt in range(MAX_RETRIES + 1):
+            await limiter.acquire()
+            try:
+                async with session.get(self.api_url, params=params) as response:
+                    response.raise_for_status()
+                    return await response.json()
+            except Exception as exc:
+                if attempt >= MAX_RETRIES:
+                    logger.error("Async request failed after %d retries: %s",
+                                 MAX_RETRIES, exc)
+                    raise
+                delay = RETRY_DELAY * (2 ** attempt)
+                delay += random.uniform(0, 0.3 * delay)
+                logger.warning("Async retry %d/%d in %.1fs: %s",
+                               attempt + 1, MAX_RETRIES, delay, exc)
+                await asyncio.sleep(delay)
+        return None
+
+    @staticmethod
+    def _merge_extract_payload(page_data: Dict[int, Dict], data: Dict) -> None:
+        """Accumulate one API response into page_data, in place.
+
+        Merges rather than replaces, because `prop=categories` is paginated:
+        MediaWiki applies `cllimit` across the WHOLE query, not per page, so a
+        20-page request returns categories for only the first page or two and
+        signals the rest via a `continue` token. Neither path followed that
+        token, so ~90% of pages were stored with an empty category list -- and
+        the classification prompt feeds those categories to the model. Pages
+        were being classified with their strongest signal missing.
+        """
+        for page_id, info in data.get('query', {}).get('pages', {}).items():
+            pid = int(page_id)
+            entry = page_data.get(pid)
+            if entry is None:
+                if 'extract' not in info:
+                    continue
+                entry = {
+                    'title': info.get('title', ''),
+                    'extract': info.get('extract', ''),
+                    'url': info.get('fullurl', ''),
+                    'categories': [],
+                }
+                page_data[pid] = entry
+            seen = set(entry['categories'])
+            for cat in info.get('categories', []) or []:
+                title = cat.get('title')
+                if title and title not in seen:
+                    seen.add(title)
+                    entry['categories'].append(title)
+
+    @classmethod
+    def _extract_params(cls, page_ids: List[int]) -> Dict:
+        """Query params shared by both paths, so they cannot drift apart."""
+        return {
             'action': 'query',
             'pageids': '|'.join(map(str, page_ids)),
             'prop': 'extracts|info|categories',
-            'exintro': True,
-            'explaintext': True,
+            'exintro': 1,
+            'explaintext': 1,
             'exlimit': EXTRACT_BATCH_SIZE,
+            'cllimit': 'max',
+            'clshow': '!hidden',
             'inprop': 'url',
-            'format': 'json'
+            'format': 'json',
         }
-
-        try:
-            await asyncio.sleep(self.rate_limit_delay)  # Rate limiting
-            async with session.get(self.api_url, params=params, headers=self.headers) as response:
-                data = await response.json()
-                
-                page_data = {}
-                if 'query' in data:
-                    pages = data['query'].get('pages', {})
-                    for page_id, page_info in pages.items():
-                        if 'extract' in page_info:
-                            categories = []
-                            if 'categories' in page_info:
-                                categories = [cat['title'] for cat in page_info['categories']]
-                            
-                            page_data[int(page_id)] = {
-                                'title': page_info.get('title', ''),
-                                'extract': page_info.get('extract', ''),
-                                'url': page_info.get('fullurl', ''),
-                                'categories': categories
-                            }
-                
-                return page_data
-        
-        except Exception as e:
-            logger.error(f"Async batch request failed: {e}")
-            return {}
