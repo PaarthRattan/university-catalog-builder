@@ -218,6 +218,6 @@ MIT License - see LICENSE file for details
 
 If using this data for research, please cite:
 ```
-University Catalog Builder (2024)
-GitHub: https://github.com/your-repo/university-catalog
+University Catalog Builder (2026)
+GitHub: https://github.com/paarthrattan/university-catalog-builder
 ```

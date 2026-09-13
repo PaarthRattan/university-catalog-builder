@@ -51,13 +51,18 @@ WIKIPEDIA_MAX_CONCURRENCY = _env_int('WIKIPEDIA_MAX_CONCURRENCY', 8)
 #   quotaValue: "5"
 # Re-check any time with `python main.py probe-limits`.
 #
-# TPM and RPD are NOT yet measured -- neither limit has been hit, so the API has
-# never reported its values. They are conservative placeholders. The client
-# learns the real numbers from the first 429 that names them and logs a warning
-# telling you what to put here.
+# RPD is also MEASURED, from a 429 on the same day:
+#   quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier
+#   quotaValue: "20"
+# Twenty requests per day is the binding constraint on this tier by a wide
+# margin -- it is what makes request batching essential rather than merely nice.
+#
+# TPM remains unverified: at 5 RPM the token limit is unreachable in practice
+# (five requests of even 10k tokens is 50k/min), so the API has never reported
+# it. The client learns the real value from the first 429 that names it.
 GEMINI_RPM = _env_int('GEMINI_RPM', 5)            # requests per minute (MEASURED)
 GEMINI_TPM = _env_int('GEMINI_TPM', 250_000)      # tokens per minute (unverified)
-GEMINI_RPD = _env_int('GEMINI_RPD', 250)          # requests per day (unverified)
+GEMINI_RPD = _env_int('GEMINI_RPD', 20)           # requests per day (MEASURED)
 
 # Retry / backoff. Applies to transient failures only; see src/gemini_client.py
 # for which errors are classified retryable.

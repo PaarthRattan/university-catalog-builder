@@ -60,8 +60,13 @@ class UniversityExtractionPipeline:
     def _halt_on_quota(self, exc: DailyQuotaExhausted, stage: str) -> PipelineHalted:
         """Turn daily-quota exhaustion into a clean, resumable stop."""
         stats = self.db.get_statistics()
-        msg = (f"Daily Gemini quota exhausted during {stage}. "
-               f"{exc}. All completed work is checkpointed; "
+        violations = getattr(exc, "violations", None)
+        detail = (f" Server reported: {violations}." if violations else "")
+        server_msg = getattr(exc, "server_message", None)
+        if server_msg:
+            detail += f" Message: {server_msg}"
+        msg = (f"Daily Gemini quota exhausted during {stage}. {exc}.{detail} "
+               f"All completed work is checkpointed; "
                f"resume with `python main.py resume` after the quota window rolls.")
         logger.warning(msg)
         self.db.log_processing_stage(stage, "halted_quota", msg)

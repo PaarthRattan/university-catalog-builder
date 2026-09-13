@@ -247,12 +247,20 @@ class GeminiClient:
 
                     if is_rate_limit_error(exc):
                         rl_hits += 1
-                        for qid, qval in extract_quota_violations(exc):
+                        violations = extract_quota_violations(exc)
+                        for qid, qval in violations:
                             self.limiter.note_server_quota(qid, qval)
+                        # Always log which quota the server actually named --
+                        # "rate limited" without the quota id is undiagnosable.
+                        logger.info("%s: 429 quota violations: %s",
+                                    purpose, violations or "(none reported)")
                         if is_daily_quota_violation(exc):
                             snap = self.limiter.snapshot()
-                            raise DailyQuotaExhausted(
-                                snap["requests_last_day"], snap["rpd_limit"], 0.0) from exc
+                            daily = DailyQuotaExhausted(
+                                snap["requests_last_day"], snap["rpd_limit"], 0.0)
+                            daily.violations = violations
+                            daily.server_message = str(exc)[:500]
+                            raise daily from exc
                         retry_after = parse_retry_after(exc)
                         if attempt >= GEMINI_MAX_RETRIES:
                             break
