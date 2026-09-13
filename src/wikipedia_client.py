@@ -5,7 +5,8 @@ import time
 from typing import List, Dict, Optional
 import logging
 from config import (WIKIPEDIA_API_URL, WIKIPEDIA_USER_AGENT, WIKIPEDIA_REQUESTS_PER_SECOND,
-                    WIKIPEDIA_MAX_CONCURRENCY, BATCH_SIZE, MAX_RETRIES, RETRY_DELAY)
+                    WIKIPEDIA_MAX_CONCURRENCY, BATCH_SIZE, EXTRACT_BATCH_SIZE,
+                    MAX_RETRIES, RETRY_DELAY)
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +43,25 @@ class WikipediaClient:
                 return None
     
     def get_category_members(self, category: str, limit: int = 500) -> List[Dict]:
-        """Get all pages in a category"""
+        """Get article pages in a category.
+
+        Restricted to namespace 0 (articles). Without this the listing also
+        returns the category's own subcategories as if they were pages, which
+        then get stored with no extract and sent to Gemini for classification --
+        spending quota to be told that "Category:Arts schools in Delaware" is not
+        a university. Subcategories are enumerated separately by
+        get_subcategories().
+        """
         pages = []
         continue_token = None
-        
+
         while True:
             params = {
                 'action': 'query',
                 'list': 'categorymembers',
                 'cmtitle': category,
                 'cmlimit': min(limit, 500),
+                'cmnamespace': 0,
                 'format': 'json'
             }
             
@@ -85,17 +95,18 @@ class WikipediaClient:
         """Get page extracts and basic info for multiple pages"""
         page_data = {}
         
-        # Process in batches
-        for i in range(0, len(page_ids), BATCH_SIZE):
-            batch_ids = page_ids[i:i + BATCH_SIZE]
-            
+        # Chunked at EXTRACT_BATCH_SIZE, not BATCH_SIZE: the extracts API returns
+        # content for at most `exlimit` (max 20) pages per request.
+        for i in range(0, len(page_ids), EXTRACT_BATCH_SIZE):
+            batch_ids = page_ids[i:i + EXTRACT_BATCH_SIZE]
+
             params = {
                 'action': 'query',
                 'pageids': '|'.join(map(str, batch_ids)),
                 'prop': 'extracts|info|categories',
                 'exintro': True,
                 'explaintext': True,
-                'exlimit': BATCH_SIZE,
+                'exlimit': EXTRACT_BATCH_SIZE,
                 'inprop': 'url',
                 'format': 'json'
             }
@@ -184,8 +195,8 @@ class WikipediaClient:
                 async with semaphore:
                     return await self._async_get_batch(session, batch_ids)
 
-            tasks = [bounded(page_ids[i:i + BATCH_SIZE])
-                     for i in range(0, len(page_ids), BATCH_SIZE)]
+            tasks = [bounded(page_ids[i:i + EXTRACT_BATCH_SIZE])
+                     for i in range(0, len(page_ids), EXTRACT_BATCH_SIZE)]
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
@@ -206,11 +217,11 @@ class WikipediaClient:
             'prop': 'extracts|info|categories',
             'exintro': True,
             'explaintext': True,
-            'exlimit': BATCH_SIZE,
+            'exlimit': EXTRACT_BATCH_SIZE,
             'inprop': 'url',
             'format': 'json'
         }
-        
+
         try:
             await asyncio.sleep(self.rate_limit_delay)  # Rate limiting
             async with session.get(self.api_url, params=params, headers=self.headers) as response:

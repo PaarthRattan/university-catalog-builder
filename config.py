@@ -97,6 +97,10 @@ MAX_PAGE_ATTEMPTS = _env_int('MAX_PAGE_ATTEMPTS', 3)
 # NOTE: BATCH_SIZE controls WIKIPEDIA API chunking only (pageids per query).
 # It has never had any effect on Gemini batching -- see GEMINI_*_BATCH_SIZE.
 BATCH_SIZE = _env_int('BATCH_SIZE', 50)
+# Wikipedia caps `exlimit` at 20 when requesting extracts. Sending BATCH_SIZE=50
+# pageids silently returns extracts for only the first 20, leaving the rest with
+# empty content -- which then gets classified by Gemini on no information at all.
+EXTRACT_BATCH_SIZE = _env_int('EXTRACT_BATCH_SIZE', 20)
 MAX_RETRIES = _env_int('MAX_RETRIES', 3)      # Wikipedia client retries
 RETRY_DELAY = _env_float('RETRY_DELAY', 1.0)  # Wikipedia client base delay
 
