@@ -4,7 +4,8 @@ import aiohttp
 import time
 from typing import List, Dict, Optional
 import logging
-from config import WIKIPEDIA_API_URL, WIKIPEDIA_USER_AGENT, WIKIPEDIA_REQUESTS_PER_SECOND, BATCH_SIZE, MAX_RETRIES, RETRY_DELAY
+from config import (WIKIPEDIA_API_URL, WIKIPEDIA_USER_AGENT, WIKIPEDIA_REQUESTS_PER_SECOND,
+                    WIKIPEDIA_MAX_CONCURRENCY, BATCH_SIZE, MAX_RETRIES, RETRY_DELAY)
 
 logger = logging.getLogger(__name__)
 
@@ -171,17 +172,21 @@ class WikipediaClient:
     async def async_get_page_extracts(self, page_ids: List[int]) -> Dict[int, Dict]:
         """Async version of get_page_extracts for better performance"""
         page_data = {}
-        
+
+        # Bound in-flight requests with a semaphore. A bare asyncio.gather over
+        # every batch opens one connection per batch simultaneously, which for a
+        # large page set means thousands of concurrent requests at Wikipedia --
+        # both impolite and a reliable way to get throttled or blocked.
+        semaphore = asyncio.Semaphore(max(1, WIKIPEDIA_MAX_CONCURRENCY))
+
         async with aiohttp.ClientSession() as session:
-            tasks = []
-            
-            # Create tasks for each batch
-            for i in range(0, len(page_ids), BATCH_SIZE):
-                batch_ids = page_ids[i:i + BATCH_SIZE]
-                task = self._async_get_batch(session, batch_ids)
-                tasks.append(task)
-            
-            # Execute all tasks
+            async def bounded(batch_ids):
+                async with semaphore:
+                    return await self._async_get_batch(session, batch_ids)
+
+            tasks = [bounded(page_ids[i:i + BATCH_SIZE])
+                     for i in range(0, len(page_ids), BATCH_SIZE)]
+
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # Combine results
